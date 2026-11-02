@@ -1,4 +1,4 @@
-pkgs <- c("ggplot")
+pkgs <- c("ggplot2", 'openxlsx', 'dplyr')
 
 # install any that are missing, then load all
 missing <- pkgs[!pkgs %in% rownames(installed.packages())]
