@@ -1,0 +1,6 @@
+#R
+*.Rproj
+*.Rhistory
+.Rproj.user
+#No excel file
+*.xlsx
