@@ -95,7 +95,8 @@ ggplot(GHG, aes(WT, CO2flux_mg_m2_h)) + geom_point(cex = 4, pch = 21, aes(fill =
 CO2_res <- as.data.frame(GHG |> group_by(Year, Canopy_treatment, Disturbance_treatment) |> 
                            summarise(A = NA, #normalization constant
                                      Ase = NA, #standard error of estimate - I will need it to generate 4 replicates by sampling from random distribution
-                                     a = NA, #activation energy
+                                     a = NA, #temperature sensitivity 
+                                     ase = NA, #standard error
                                      p_temp = NA, #p for temperature response function
                                      s1 = NA, #first order slope to soil moisture
                                      s2 = NA, #second order slope to soil moisture
@@ -120,6 +121,7 @@ for(i in unique(GHG$Year)){
           res_out <- c(exp(summary(mWT)$coefficients[1]), #A
                        exp(summary(mWT)$coefficients[5]), #Ase
                        summary(mWT)$coefficients[2], #a
+                       summary(mWT)$coefficients[6], #ase
                        summary(mWT)$coefficients[14], #p_temp
                        summary(mWT)$coefficients[c(3,4)], #s1 and s2
                        summary(mWT)$coefficients[c(15, 16)], #p_s1 and p_s2
@@ -131,6 +133,7 @@ for(i in unique(GHG$Year)){
           res_out <- c(exp(summary(mT)$coefficients[1]), #A
                        exp(summary(mT)$coefficients[3]), #Ase
                        summary(mT)$coefficients[2], #a
+                       summary(mT)$coefficients[4], #ase
                        summary(mT)$coefficients[7], #p_temp
                        NA, NA, #s1 and s2
                        NA, NA, #p_s1 and p_s2
@@ -159,6 +162,7 @@ for(i in unique(GHG$Year)){
         res_out <- c(exp(summary(mT)$coefficients[1]), #A
                      exp(summary(mT)$coefficients[3]), #Ase
                      summary(mT)$coefficients[2], #a
+                     summary(mT)$coefficients[4], #ase
                      summary(mT)$coefficients[7], #p_temp
                      NA, NA, #s1 and s2
                      NA, NA, #p_s1 and p_s2
@@ -198,3 +202,71 @@ ggplot(GHG, aes(WT, N2Oflux_ug_m2_h)) + geom_point(cex = 4, pch = 21, aes(fill =
   labs(x = 'Moisture (unknown units)', y = expression(paste(N[2]*O~flux~(mu*g~N-N[2]*O~m^{-2}~h^{-1}))), fill = 'Year')
 ####There is no apparent relationship
 ####It does not seem necessary to normalize N2O fluxes too.
+
+################################################################################
+###########################Merging with FTIR data###############################
+################################################################################
+is.factor(FTIR$CT1)
+FTIR$CT1 <- as.factor(FTIR$CT1)
+#I need two new columns with factor names and levels corresponding to GHG dataframe. I hope I did not mess up
+FTIR_full <- FTIR |> mutate(Canopy_treatment = factor(CT1, levels = c('CC', 'CO', 'MT'),
+                                                      labels = unique(GHG$Canopy_treatment)),
+                            Disturbance_treatment = factor(ST1, levels = c('CO', 'TLR', 'M'),
+                                                           labels = unique(GHG$Disturbance_treatment)))
+#I will add normalized CO2 flux in mg C-CO2 per m^2 and hour (i.e. temperature effect filtered out) and Q10 (estimate ot temperature sensitivity)
+FTIR_full$CO2_normalized <- numeric(length = nrow(FTIR))
+FTIR_full$Q10_normalized <- numeric(length = nrow(FTIR))
+
+#for loop will do the job again
+for(i in unique(GHG$Year)){
+  for(j in unique(GHG$Canopy_treatment)){
+    for(k in unique(GHG$Disturbance_treatment)){
+      Amean = CO2_res[(CO2_res$Year == i & CO2_res$Canopy_treatment == j & 
+                         CO2_res$Disturbance_treatment == k), "A"]
+      Ase = CO2_res[(CO2_res$Year == i & CO2_res$Canopy_treatment == j & 
+                       CO2_res$Disturbance_treatment == k), "Ase"]
+      amean = CO2_res[(CO2_res$Year == i & CO2_res$Canopy_treatment == j & 
+                         CO2_res$Disturbance_treatment == k), "a"]
+      ase = CO2_res[(CO2_res$Year == i & CO2_res$Canopy_treatment == j & 
+                       CO2_res$Disturbance_treatment == k), "ase"]
+      #I will add the numbers to corresponding depths - 20 - 30 in case of TLR or 0 - 10 in case of CO and M
+      if(k == "Topsoil_removal"){
+        #The respective subset should have 4 replicates but I do not want to risk anything so I define nrep
+        nrep = nrow(FTIR_full[(FTIR_full$year_sampling == i & FTIR_full$Canopy_treatment == j & 
+                                 FTIR_full$Disturbance_treatment == k & FTIR_full$Depth == '20-30'), ])
+        
+        #Generate normalized CO2 flux by sampling from random normal distribution
+        CO2draws <- rnorm(nrep, mean = Amean, sd = Ase)
+        #Generate Q10 by sampling from random normal distribution
+        Q10draws <- rnorm(nrep, mean = amean, sd = ase)
+        
+        #Paste these to respective FTIR subset
+        FTIR_full[(FTIR_full$year_sampling == i & FTIR_full$Canopy_treatment == j & 
+                     FTIR_full$Disturbance_treatment == k & FTIR_full$Depth == '20-30'), 'CO2_normalized'] <- CO2draws
+        FTIR_full[(FTIR_full$year_sampling == i & FTIR_full$Canopy_treatment == j & 
+                     FTIR_full$Disturbance_treatment == k & FTIR_full$Depth == '20-30'), 'Q10_normalized'] <- exp(Q10draws*10)
+      } else {
+        #The respective subset should have 4 replicates but I do not want to risk anything so I define nrep
+        nrep = nrow(FTIR_full[(FTIR_full$year_sampling == i & FTIR_full$Canopy_treatment == j & 
+                                 FTIR_full$Disturbance_treatment == k & FTIR_full$Depth == '0-10'), ])
+        
+        #Generate normalized CO2 flux by sampling from random normal distribution
+        CO2draws <- rnorm(nrep, mean = Amean, sd = Ase)
+        #Generate Q10 by sampling from random normal distribution
+        Q10draws <- rnorm(nrep, mean = amean, sd = ase)
+        
+        #Paste these to respective FTIR subset
+        FTIR_full[(FTIR_full$year_sampling == i & FTIR_full$Canopy_treatment == j & 
+                     FTIR_full$Disturbance_treatment == k & FTIR_full$Depth == '0-10'), 'CO2_normalized'] <- CO2draws
+        FTIR_full[(FTIR_full$year_sampling == i & FTIR_full$Canopy_treatment == j & 
+                     FTIR_full$Disturbance_treatment == k & FTIR_full$Depth == '0-10'), 'Q10_normalized'] <- exp(Q10draws*10)
+      }
+    }
+  }
+}
+
+FTIR_full$CO2_normalized[FTIR_full$CO2_normalized == 0] <- NA
+FTIR_full$Q10_normalized[FTIR_full$Q10_normalized == 0] <- NA
+
+#======================exporting to csv
+write.csv(FTIR_full, row.names = F, 'DATA_normalizedFluxes.csv')
