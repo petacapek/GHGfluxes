@@ -83,34 +83,64 @@ ggplot(GHG, aes(WT, CO2flux_mg_m2_h)) + geom_point(cex = 4, pch = 21, aes(fill =
 ####The relationship is not straightforward but certain tendencies are subjectively present
 
 # ---- Fitting temperature and moisture response functions ----
-#Temperature function is straightforward - Arrhenius equation:
-##                                          flux = A*exp(-Ea/R/T)
-##                                          in which T is temperature in K, Ea is activation energy in J/mol, R is gas constant (8.314 J/K/mol), and A is normalization constant in mg of CO2 per m^2 and hour - this defines the temperature independent flux
-##                                         the function can be linearized - ln(flux) = ln(A) - Ea*(1/R/T) and A estimated
+#Temperature function is straightforward - exponential function
+##                                          flux = A*exp(a*T)
+##                                          in which T is temperature in 5cm depth, a is temperature sensitivity (exp(a*10) defines Q10 parameter), and A is normalization constant in mg of CO2 per m^2 and hour - this defines the temperature independent flux
+##                                         the function can be linearized - ln(flux) = ln(A) - a*T and A estimated
+##                                         !!!ln(flux) does not work with negative numbers, which does not make sense anyway. The negative fluxes will be ignored
 
 #Moisture function is less obvious - it has unimodal character in theory - I will use 2nd order polynomial, but test its significance
 
 #Results will be stored here (one estimate per year and unique treatment combination):
 CO2_res <- as.data.frame(GHG |> group_by(Year, Canopy_treatment, Disturbance_treatment) |> 
                            summarise(A = NA, #normalization constant
-                                     Ea = NA, #activation energy
+                                     a = NA, #activation energy
                                      p_temp = NA, #p for temperature response function
                                      s1 = NA, #first order slope to soil moisture
                                      s2 = NA, #second order slope to soil moisture
-                                     p_moisture = NA, #p for moisture response function
+                                     p_s1 = NA, #p for moisture response function - first polynomial term
+                                     p_s2 = NA, #p for moisture response function - second polynomial term
                                      R2 = NA #coefficient of determination of the final model
                                      ))
-
-#Temperature is converted to 1/R/T
-GHG$invRT <- 1/8.314/(GHG$T5 + 273.15)
 
 #The for loop is used to do all the work
 for(i in unique(GHG$Year)){
   for(j in unique(GHG$Canopy_treatment)){
     for(k in unique(GHG$Disturbance_treatment)){
-      tryCatch({
+      tryCatch({#tryCatch is specified here to skip potential errors in the loop
+        
+        #Temperature effect
+        mT <- lm(log(CO2flux_mg_m2_h) ~ T5, data = GHG, subset = (Year == i & Canopy_treatment == j & Disturbance_treatment == k))
+        #Moisture effect
+        mWT <- update(mT, . ~ . + poly(WT, 2, raw = T))
+        #if else loop is used to extract coefficients from mT or mWT depending on the statistical significance of the polynomial term
+        if(summary(mWT)$coefficients[15] < 0.05 | summary(mWT)$coefficients[16] < 0.05){
+          #this is a vector with coefficients of mWT model
+          res_out <- c(exp(summary(mWT)$coefficients[1]), #A
+                       summary(mWT)$coefficients[2], #a
+                       summary(mWT)$coefficients[14], #p_temp
+                       summary(mWT)$coefficients[c(3,4)], #s1 and s2
+                       summary(mWT)$coefficients[c(15, 16)], #p_s1 and p_s2
+                       summary(mWT)$r.squared) #R2
+          CO2_res[(CO2_res$Year == i & CO2_res$Canopy_treatment == j & CO2_res$Disturbance_treatment == k),
+                  c(4:ncol(CO2_res))] <- res_out
+          
+        } else {
+          res_out <- c(exp(summary(mT)$coefficients[1]), #A
+                       summary(mT)$coefficients[2], #a
+                       summary(mT)$coefficients[7], #p_temp
+                       NA, NA, #s1 and s2
+                       NA, NA, #p_s1 and p_s2
+                       summary(mT)$r.squared) #R2
+          CO2_res[(CO2_res$Year == i & CO2_res$Canopy_treatment == j & CO2_res$Disturbance_treatment == k),
+                  c(4:ncol(CO2_res))] <- res_out
+        }
         
       }, error = function(e){print(paste("Something is wrong with:", c(i, j, k)))})
     }
   }
 }
+
+####Notice that all temperature effects are highly significant.
+####The numbers make sense - CO2 flux increases with residue addition and decreases with topsoil removal
+####That brings me to one important consideration. The CO2 flux scales with organic C content so I suggest to normalize flux to a unit of organic C so additional variability goes to organic C quality and thus, FTIR
