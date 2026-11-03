@@ -73,13 +73,13 @@ GHG |> group_by(Year, Canopy_treatment, Disturbance_treatment) |>
 ##3. Temperature dependence of CO2 flux
 ggplot(GHG, aes(T5, CO2flux_mg_m2_h)) + geom_point(cex = 4, pch = 21, aes(fill = factor(Year))) + theme_test() +
   facet_wrap(Canopy_treatment ~ Disturbance_treatment, scales = 'free') +
-  labs(x = 'Temperature (˚C)', y = expression(paste(CO[2]~flux~(mg~C-CO[2]~m^{-2}~h^{-2}))), fill = 'Year')
+  labs(x = 'Temperature (˚C)', y = expression(paste(CO[2]~flux~(mg~C-CO[2]~m^{-2}~h^{-1}))), fill = 'Year')
 ####There is a relationship - seems to differ between among years and treatments
 
 ##4. Moisture dependence of CO2 flux
 ggplot(GHG, aes(WT, CO2flux_mg_m2_h)) + geom_point(cex = 4, pch = 21, aes(fill = factor(Year))) + theme_test() +
   facet_wrap(Canopy_treatment ~ Disturbance_treatment, scales = 'free') +
-  labs(x = 'Moisture (unknown units)', y = expression(paste(CO[2]~flux~(mg~C-CO[2]~m^{-2}~h^{-2}))), fill = 'Year')
+  labs(x = 'Moisture (unknown units)', y = expression(paste(CO[2]~flux~(mg~C-CO[2]~m^{-2}~h^{-1}))), fill = 'Year')
 ####The relationship is not straightforward but certain tendencies are subjectively present
 
 # ---- Fitting temperature and moisture response functions ----
@@ -94,6 +94,7 @@ ggplot(GHG, aes(WT, CO2flux_mg_m2_h)) + geom_point(cex = 4, pch = 21, aes(fill =
 #Results will be stored here (one estimate per year and unique treatment combination):
 CO2_res <- as.data.frame(GHG |> group_by(Year, Canopy_treatment, Disturbance_treatment) |> 
                            summarise(A = NA, #normalization constant
+                                     Ase = NA, #standard error of estimate - I will need it to generate 4 replicates by sampling from random distribution
                                      a = NA, #activation energy
                                      p_temp = NA, #p for temperature response function
                                      s1 = NA, #first order slope to soil moisture
@@ -117,6 +118,7 @@ for(i in unique(GHG$Year)){
         if(summary(mWT)$coefficients[15] < 0.05 | summary(mWT)$coefficients[16] < 0.05){
           #this is a vector with coefficients of mWT model
           res_out <- c(exp(summary(mWT)$coefficients[1]), #A
+                       exp(summary(mWT)$coefficients[5]), #Ase
                        summary(mWT)$coefficients[2], #a
                        summary(mWT)$coefficients[14], #p_temp
                        summary(mWT)$coefficients[c(3,4)], #s1 and s2
@@ -127,6 +129,7 @@ for(i in unique(GHG$Year)){
           
         } else {
           res_out <- c(exp(summary(mT)$coefficients[1]), #A
+                       exp(summary(mT)$coefficients[3]), #Ase
                        summary(mT)$coefficients[2], #a
                        summary(mT)$coefficients[7], #p_temp
                        NA, NA, #s1 and s2
@@ -143,4 +146,55 @@ for(i in unique(GHG$Year)){
 
 ####Notice that all temperature effects are highly significant.
 ####The numbers make sense - CO2 flux increases with residue addition and decreases with topsoil removal
-####That brings me to one important consideration. The CO2 flux scales with organic C content so I suggest to normalize flux to a unit of organic C so additional variability goes to organic C quality and thus, FTIR
+####That brings me to one important consideration. The CO2 flux scales with organic C stocks so I suggest to normalize flux to a unit of organic C so additional variability goes to organic C quality and thus, FTIR
+####Moisture effect is significant in 3 out of 18 cases so I will refit all data with temperature function only
+for(i in unique(GHG$Year)){
+  for(j in unique(GHG$Canopy_treatment)){
+    for(k in unique(GHG$Disturbance_treatment)){
+      tryCatch({#tryCatch is specified here to skip potential errors in the loop
+        
+        #Temperature effect
+        mT <- lm(log(CO2flux_mg_m2_h) ~ T5, data = GHG, subset = (Year == i & Canopy_treatment == j & Disturbance_treatment == k))
+       
+        res_out <- c(exp(summary(mT)$coefficients[1]), #A
+                     exp(summary(mT)$coefficients[3]), #Ase
+                     summary(mT)$coefficients[2], #a
+                     summary(mT)$coefficients[7], #p_temp
+                     NA, NA, #s1 and s2
+                     NA, NA, #p_s1 and p_s2
+                     summary(mT)$r.squared) #R2
+        CO2_res[(CO2_res$Year == i & CO2_res$Canopy_treatment == j & CO2_res$Disturbance_treatment == k),
+                c(4:ncol(CO2_res))] <- res_out
+       
+      }, error = function(e){print(paste("Something is wrong with:", c(i, j, k)))})
+    }
+  }
+}
+
+#========================CH4 flux
+##1. Temperature dependence of CH4 flux
+ggplot(GHG, aes(T5, CH4flux_ug_m2_h)) + geom_point(cex = 4, pch = 21, aes(fill = factor(Year))) + theme_test() +
+  facet_wrap(Canopy_treatment ~ Disturbance_treatment, scales = 'free') +
+  labs(x = 'Temperature (˚C)', y = expression(paste(CH[4]~flux~(mu*g~C-CH[4]~m^{-2}~h^{-1}))), fill = 'Year')
+####There is no apparent relationship
+
+##2. Moisture dependence of CH4 flux
+ggplot(GHG, aes(WT, CH4flux_ug_m2_h)) + geom_point(cex = 4, pch = 21, aes(fill = factor(Year))) + theme_test() +
+  facet_wrap(Canopy_treatment ~ Disturbance_treatment, scales = 'free') +
+  labs(x = 'Moisture (unknown units)', y = expression(paste(CH[4]~flux~(mu*g~C-CH[4]~m^{-2}~h^{-1}))), fill = 'Year')
+####There is no apparent relationship
+####It does not seem necessary to normalize fluxes. It is, however, important to state in manuscript that all fluxes are negative - methane is consumed by methanotrophs - methane is source of energy and C - it should be FTIR independent
+
+#========================N2O flux
+##1. Temperature dependence of N2O flux
+ggplot(GHG, aes(T5, N2Oflux_ug_m2_h)) + geom_point(cex = 4, pch = 21, aes(fill = factor(Year))) + theme_test() +
+  facet_wrap(Canopy_treatment ~ Disturbance_treatment, scales = 'free') +
+  labs(x = 'Temperature (˚C)', y = expression(paste(N[2]*O~flux~(mu*g~N-N[2]*O~m^{-2}~h^{-1}))), fill = 'Year')
+####There is no apparent relationship
+
+##2. Moisture dependence of N2O flux
+ggplot(GHG, aes(WT, N2Oflux_ug_m2_h)) + geom_point(cex = 4, pch = 21, aes(fill = factor(Year))) + theme_test() +
+  facet_wrap(Canopy_treatment ~ Disturbance_treatment, scales = 'free') +
+  labs(x = 'Moisture (unknown units)', y = expression(paste(N[2]*O~flux~(mu*g~N-N[2]*O~m^{-2}~h^{-1}))), fill = 'Year')
+####There is no apparent relationship
+####It does not seem necessary to normalize N2O fluxes too.
