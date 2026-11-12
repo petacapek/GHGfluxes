@@ -57,11 +57,15 @@ if (!(site_to_use %in% holi$siteid)) {
   stop("site_to_use is not a value of siteid.")
 }
 
+# !!! I added moisture and temperature data. We should check if the tr and hr have the same thermal characteristics since we know the temperature effect is significant. 
+# !!! Maybe, f_canopy is temperature sensitive itself (could be according to theory). If it is, some weird fluxes we saw could be partially explained
 d <- data.frame(date     = as.Date(holi$date, format = "%m/%d/%Y"),
                 siteid   = holi$siteid,
                 point    = as.character(holi$point),
                 trenched = toupper(as.character(holi$trenched)),
-                flux     = as.numeric(holi$flux))
+                flux     = as.numeric(holi$flux),
+                moisture  = as.numeric(holi$tsmoisture),
+                temp      = as.numeric(holi$t05))
 
 if (sum(is.na(d$date)) > 0) {
   stop(" Check the date format (month/day/year)")
@@ -215,3 +219,59 @@ spectra_out <- cbind(spec[, 1:(first_spectral_column - 1)],
 output_spectra_file <- sub(".csv", "_HR10.csv", basename(spectra_file), fixed = TRUE)
 write.csv(spectra_out, file.path(output_dir, output_spectra_file), row.names = FALSE)
 
+
+# -----------------------------------------------------------------------------
+# Temperature sensitivities of heterotrophic and total respiration
+# -----------------------------------------------------------------------------
+# Here I paire your dataframes across all observations to see the entire variability
+paired_all <- merge(tr[, c('flux', 'temp', 'plot', 'moisture', 'Year','date')],
+                    hr[, c('flux', 'temp', 'plot', 'moisture',  'campaign_date')],
+                    by.x = c('plot','date'),
+                    by.y = c('plot', 'campaign_date'))
+cnames <- gsub('.x', '.total', names(paired_all), fixed = T)
+cnames <- gsub('.y', '.hetero', cnames, fixed = T)
+
+colnames(paired_all) <- cnames
+
+# I will add a new column defining canopy treatments (CC: 2, 3 | CO: 31, 42 | CCF: 52)
+paired_all <- paired_all |> mutate(Canopy_treatment = case_when(plot == 2 | plot == 3 ~ 'CC',
+                                                                plot == 31 | plot == 42 ~ 'CO',
+                                                                plot == 52 ~ 'CCF'))
+# Now, I will plot the two fluxes against each other and I need to see some relationship below 1:1 line
+paired_all |> filter(flux.total > 0 & flux.hetero > 0) |> 
+  ggplot(aes(flux.total, flux.hetero)) + geom_point(cex = 6, pch = 21, fill = 'grey') +
+  theme_test() + facet_grid(Year ~ plot, scales = 'free') +
+  geom_abline(intercept = 0, slope = 1) +
+  stat_smooth(method = 'lm', se = F) 
+
+# Print the slopes of the relationship between heterotrophic and total respiration for each treatment and year
+for(i in unique(paired_all$Canopy_treatment)){
+  for(j in c(2022, 2023)){
+    print(
+      c(j, i,
+        coef(
+          lm(flux.hetero ~ flux.total, data = paired_all, subset = Canopy_treatment == i & Year == j)
+        )[[2]]
+        )
+    )
+  }
+}
+
+# I will add another column identifying positive, none or negative difference in background temperatures of measurement
+paired_all <- paired_all |> mutate(temp_diff = case_when(temp.hetero - temp.total > 0 ~ 'positive',
+                                                         temp.hetero - temp.total < 0 ~ 'negative',
+                                                         temp.hetero - temp.total == 0 ~ 'equal'))
+
+paired_all |> filter(flux.total > 0 & flux.hetero > 0) |> 
+  ggplot(aes(flux.total, flux.hetero)) + geom_point(cex = 6, pch = 21, aes(fill = temp_diff)) +
+  theme_test() + facet_grid(Year ~ Canopy_treatment, scales = 'free') +
+  geom_abline(intercept = 0, slope = 1) +
+  stat_smooth(method = 'lm', se = F) 
+
+paired_all |> filter(flux.total > 0 & flux.hetero > 0) |> 
+  ggplot(aes(temp.hetero, flux.hetero)) + geom_point(cex = 6, pch = 21) +
+  theme_test() + facet_grid( ~ Canopy_treatment, scales = 'free') 
+
+paired_all |> filter(flux.total > 0 & flux.hetero > 0) |> 
+  ggplot(aes(temp.total, flux.total)) + geom_point(cex = 6, pch = 21) +
+  theme_test() + facet_grid(Year ~ Canopy_treatment, scales = 'free') 

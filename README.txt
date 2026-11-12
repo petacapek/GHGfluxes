@@ -9,3 +9,8 @@ Jessica scripts
 2.Script 2.Fraction_from_HR_plots.R is the fraction of hetero respiration from the plots were that was measured (CC=2,3; CO=31,42; CCF=52). Then it multiplies that fraction by each total respiration of the control plots normalized from output_R10_canopy/DATA_spectra_R10_canopy.csv
 3. please use this dataset 3.DATA_spectra.csv that is replacing Top_Spectra_selected_and_variables130_JR.xlsx The difference is that I included bulk density and I had to re do the preprocessing of the spectra so "3.DATA_spectra.csv"  is the the last and final version.
 4. Im uploading also the 2.holisoils_soil_respiration_dataset.csv where we have the hetero respiration and total respiration only for trenched plots (2,3,31,42,52).
+
+Acknowledging temperature response of fraction of heterotrophic respiration
+1. I added a new R script file that calculates fraction of heterotrophic respiration as a logistic function of temperature
+2. The most important part of the script is at the end - CO2 flux is first recalculated to heterotrophic respiration HR and then I recycle your script that filters out the temperature sensitivity of hetreotrophic respiration
+3. let's see if the correction help somehow.

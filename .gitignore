@@ -7,3 +7,5 @@
 *.xlsx
 #No temporary files
 .~lock.*
+#No figures
+*.png
